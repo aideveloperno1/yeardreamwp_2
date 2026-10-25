@@ -90,7 +90,7 @@ export default function DocumentsPage() {
       <p className="note">
         {app.mode === "mock"
           ? "관리자용 목업입니다. PDF를 실제로 읽거나 저장하지 않습니다."
-          : "실제 /upload를 호출합니다. 같은 subject의 기존 청크를 교체하며, 같은 파일명은 거절될 수 있습니다. 현재 인증·등록 이력 조회 API는 없습니다."}
+          : "실제 /upload를 호출합니다. 같은 subject의 기존 청크를 교체하며, 같은 파일명은 거절될 수 있습니다. 다른 법령을 등록해도 상담 대상(산업안전보건기준에 관한 규칙)은 바뀌지 않습니다. 현재 인증·등록 이력 조회 API는 없습니다."}
       </p>
       <Tabs
         value={tab}
@@ -119,13 +119,16 @@ export default function DocumentsPage() {
                   <div className="filters">
                     <label className="field">
                       {app.mode === "live"
-                        ? "DB subject (위 연결 설정에서 변경)"
+                        ? "등록 법령명 (DB subject)"
                         : "등록 법령명"}
                       <input
                         value={app.mode === "live" ? app.subject : lawName}
-                        readOnly={app.mode === "live"}
                         disabled={busy}
-                        onChange={(e) => setLawName(e.target.value)}
+                        onChange={(e) =>
+                          app.mode === "live"
+                            ? app.configureSubject(e.target.value)
+                            : setLawName(e.target.value)
+                        }
                       />
                     </label>
                     <label className="field">

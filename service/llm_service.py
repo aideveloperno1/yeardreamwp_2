@@ -126,6 +126,12 @@ def get_answer(query: str, search):
 
     # 4-2. 검색 결과를 참고문서 문자열로 변환
 def generate_answer(query: str, docs):
+    for event in generate_answer_events(query, docs):
+        if event.get("text"):
+            yield event["text"]
+
+
+def generate_answer_events(query: str, docs):
     context = format_docs(docs)
 
     # 4-3. 기존 LangChain 프롬프트에 실제 값 넣기
@@ -167,8 +173,9 @@ def generate_answer(query: str, docs):
 
             content = chunk.choices[0].delta.content
 
-            if content:
-                yield content
+            finish_reason = chunk.choices[0].finish_reason
+            if content or finish_reason is not None:
+                yield {"text": content or "", "finish_reason": finish_reason}
 
     finally:
         stream.close()

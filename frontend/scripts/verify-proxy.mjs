@@ -1,8 +1,10 @@
+import { wire } from "../tests/chatFixture.js";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createServer } from "vite";
 import { streamChat } from "../src/services/chatClient.js";
 import { uploadDocument } from "../src/services/documentClient.js";
+import { fetchEvaluation } from "../src/services/evaluationClient.js";
 const requests = [];
 const backend = http.createServer(async (req, res) => {
   const buffers = [];
@@ -16,13 +18,24 @@ const backend = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ detail: "시험 오류" }));
       return;
     }
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    const bytes = Buffer.from("개발 프록시 응답");
+    res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8" });
+    const bytes = Buffer.from(wire("개발 프록시 응답"));
     res.write(bytes.subarray(0, 2));
     res.end(bytes.subarray(2));
   } else if (req.url === "/upload") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ upload: ["test.pdf"] }));
+  } else if (req.url === "/admin/opik/results") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        experiment_id: "test",
+        experiment_name: "시험",
+        total: 0,
+        averages: {},
+        results: [],
+      }),
+    );
   } else {
     res.writeHead(404);
     res.end();
@@ -37,24 +50,28 @@ try {
       host: "127.0.0.1",
       port: 0,
       strictPort: false,
-      proxy: { "/ask": { target }, "/upload": { target } },
+      proxy: {
+        "/ask": { target },
+        "/upload": { target },
+        "/admin": { target },
+      },
     },
   });
   await vite.listen();
   const base = `http://127.0.0.1:${vite.httpServer.address().port}`;
   const fetcher = (path, opts) => fetch(base + path, opts);
   assert.equal(
-    await streamChat({
+    (await streamChat({
       q: "전체 질문",
       subject: "test-subject",
       onText() {},
       fetcher,
-    }),
+    })).text,
     "개발 프록시 응답",
   );
+  assert.equal(requests[0].headers.accept, "application/x-ndjson");
   assert.deepEqual(JSON.parse(requests[0].body), {
     q: "전체 질문",
-    subject: "test-subject",
   });
   await assert.rejects(
     () =>
@@ -78,6 +95,7 @@ try {
   assert.match(up.headers["content-type"], /multipart\/form-data; boundary=/);
   assert.match(up.body, /name="subject"\r\n\r\ntest-subject/);
   assert.match(up.body, /filename="test.pdf"/);
+  assert.equal((await fetchEvaluation({ fetcher })).experiment_id, "test");
   const noApi = await fetch(base + "/api/missing", {
     headers: { Accept: "text/html" },
   });
@@ -87,7 +105,7 @@ try {
     JSON.stringify(
       {
         developmentProxy: "passed",
-        chat: "UTF-8 streaming and q/subject",
+        chat: "UTF-8 streaming and q-only",
         upload: "subject/file multipart",
         httpError: "preserved",
         unsupportedApi: "JSON 501",

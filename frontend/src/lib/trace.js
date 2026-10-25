@@ -46,7 +46,7 @@ export function stepsFor(run) {
     "receive",
     "질문 접수",
     "partial",
-    "현재 백엔드: 질문과 법령명(subject)을 함께 받음 · 세션 없음",
+    "현재 백엔드: 질문(q)을 받음 · 상담 법령 고정 · 세션 없음",
     "done",
     ["질문: " + run.question].concat(
       run.followUp ? ["추가 질문에 대한 답 — 앞선 질문과 연결 (REQ-028)"] : [],

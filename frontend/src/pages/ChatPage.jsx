@@ -42,10 +42,8 @@ export default function ChatPage() {
       if (chat.busy) return;
       consumed.current = loc.key;
       setText(q);
-      if (app.mode === "mock" || app.subject.trim()) {
-        app.send(q);
-        setText("");
-      } else setValidation("DB subject를 먼저 설정한 뒤 질문을 보내세요.");
+      app.send(q);
+      setText("");
       p.delete("q");
       navigate(
         {
@@ -91,10 +89,6 @@ export default function ChatPage() {
     }
     setValidation("");
     const q = text;
-    if (app.mode === "live" && !app.subject.trim()) {
-      setValidation("실제 적재된 DB subject를 먼저 설정하세요.");
-      return;
-    }
     setText("");
     app.send(q);
   };

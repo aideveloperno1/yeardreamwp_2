@@ -5,6 +5,7 @@ import useEvaluation from "../hooks/useEvaluation.js";
 import C from "../lib/evaluation.js";
 import M from "../lib/mockData.js";
 import { Page, Table, Tabs } from "../components/Common.jsx";
+import LiveEvaluation from "../components/LiveEvaluation.jsx";
 const f = (v) => (v === null ? "—" : v.toFixed(2));
 const counts = (b) => {
   const c = C.counts(b);
@@ -15,16 +16,13 @@ export default function EvaluationPage() {
   return (
     <Page
       title="품질 평가"
-      description="프롬프트·검색 설정을 바꾼 전후 결과를 확인합니다."
+      description={
+        mode === "live"
+          ? "저장된 평가 결과를 조회합니다."
+          : "모의 프롬프트·검색 설정의 전후 결과를 비교합니다."
+      }
     >
-      {mode === "live" ? (
-        <p className="note">
-          현재 백엔드에는 웹 평가 API가 없습니다. 모의 모드에서 자체 예시 실행과
-          점수·비교 화면을 검토할 수 있습니다.
-        </p>
-      ) : (
-        <MockEvaluation />
-      )}
+      {mode === "live" ? <LiveEvaluation /> : <MockEvaluation />}
     </Page>
   );
 }

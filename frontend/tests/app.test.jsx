@@ -1,3 +1,4 @@
+import { chatResponse, sourcesLine, line, source } from "./chatFixture.js";
 import React from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
@@ -30,10 +31,11 @@ const changeMode = (mode) =>
   });
 const live = () => {
   changeMode("live");
-  fireEvent.change(screen.getByLabelText("DB subject"), {
-    target: { value: "db-key" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "설정 적용·새 상담" }));
+  if (screen.queryByLabelText("등록 법령명 (DB subject)")) {
+    fireEvent.change(screen.getByLabelText("등록 법령명 (DB subject)"), {
+      target: { value: "db-key" },
+    });
+  }
 };
 const nav = (name) =>
   fireEvent.click(
@@ -202,9 +204,7 @@ describe("live mode contract and record isolation", () => {
   it("sends complete question without mock classification and renders only actual text", async () => {
     const fetcher = vi.fn(
       async () =>
-        new Response("실제 수신한 답변 <script>원문 텍스트</script>", {
-          headers: { "Content-Type": "text/plain" },
-        }),
+        chatResponse("실제 수신한 답변 <script>원문 텍스트</script>"),
     );
     vi.stubGlobal("fetch", fetcher);
     mount();
@@ -214,7 +214,6 @@ describe("live mode contract and record isolation", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
       q: "연차휴가",
-      subject: "db-key",
     });
     expect(
       screen.queryByRole("button", { name: "근거 1 조문 상세 보기" }),
@@ -224,7 +223,8 @@ describe("live mode contract and record isolation", () => {
       JSON.parse(localStorage.getItem(keys("live").runs))[0],
     ).toMatchObject({
       mode: "live",
-      subject: "db-key",
+      subject: "산업안전보건기준에 관한 규칙",
+      contract: "fixed-law-v1",
       receiveState: "received",
     });
     expect(localStorage.getItem(keys("mock").runs)).toBeNull();
@@ -233,16 +233,14 @@ describe("live mode contract and record isolation", () => {
     changeMode("live");
     expect(screen.getByText(/실제 수신한 답변/)).toBeInTheDocument();
   });
-  it("blocks missing subject and never falls back to mock after API failure", async () => {
+  it("allows chat without registration subject and never falls back to mock after failure", async () => {
     const fetcher = vi.fn(async () => new Response("error", { status: 503 }));
     vi.stubGlobal("fetch", fetcher);
     mount();
     changeMode("live");
     ask("안전난간 높이");
-    expect(fetcher).not.toHaveBeenCalled();
-    live();
-    ask("안전난간 높이");
-    await screen.findByText("연결/응답 오류");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await screen.findByText("오류 종료");
     expect(
       screen.queryByRole("button", { name: "근거 1 조문 상세 보기" }),
     ).toBeNull();
@@ -255,10 +253,10 @@ describe("live mode contract and record isolation", () => {
           new ReadableStream({
             start(c) {
               controller = c;
-              c.enqueue(new TextEncoder().encode("앞부분"));
+              c.enqueue(new TextEncoder().encode(sourcesLine + line("delta", { text: "앞부분" })));
             },
           }),
-          { headers: { "Content-Type": "text/plain" } },
+          { headers: { "Content-Type": "application/x-ndjson" } },
         ),
     );
     vi.stubGlobal("fetch", fetcher);
@@ -271,7 +269,7 @@ describe("live mode contract and record isolation", () => {
       screen.getByRole("button", { name: "＋ 새 상담", exact: true }),
     );
     await act(async () => {
-      controller.enqueue(new TextEncoder().encode("뒤늦은 부분"));
+      controller.enqueue(new TextEncoder().encode(line("delta", { text: "뒤늦은 부분" })));
       controller.close();
     });
     expect(screen.queryByText("앞부분")).toBeNull();
@@ -281,35 +279,53 @@ describe("live mode contract and record isolation", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(screen.getByText("수신 중단")).toBeInTheDocument();
   });
-  it("marks evaluation unsupported in live mode", () => {
+  it("loads actual evaluation results and keeps zero distinct from missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          experiment_id: "exp",
+          experiment_name: "실제 실험",
+          total: 2,
+          averages: { quality: 0 },
+          results: [
+            { question: "실제 질문", scores: { quality: 0 } },
+            { question: "미측정 질문", scores: {} },
+          ],
+        }),
+      ),
+    );
     mount("/evaluation");
     changeMode("live");
+    await screen.findByRole("heading", { name: "실제 실험" });
     expect(screen.queryByRole("button", { name: "모의 평가 실행" })).toBeNull();
-    expect(screen.getByText(/웹 평가 API가 없습니다/)).toBeInTheDocument();
+    expect(screen.getByText("quality: 0")).toBeInTheDocument();
+    expect(screen.getByText("미측정")).toBeInTheDocument();
   });
-  it("starts a new conversation after subject changes and preserves prior run provenance", async () => {
+  it("registration subject changes do not reset chat or change fixed-law records", async () => {
     const fetcher = vi.fn(
       async () =>
-        new Response("이전 실제 답변", {
-          headers: { "Content-Type": "text/plain" },
-        }),
+        chatResponse("이전 실제 답변"),
     );
     vi.stubGlobal("fetch", fetcher);
     mount();
     live();
     ask("첫 질문");
-    await screen.findByText("응답 수신 종료");
-    fireEvent.change(screen.getByLabelText("DB subject"), {
+    await screen.findByText("답변 생성 완료");
+    nav("법령 RAG 관리");
+    fireEvent.change(screen.getByLabelText("등록 법령명 (DB subject)"), {
       target: { value: "other-db" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "설정 적용·새 상담" }));
-    expect(screen.queryByText("이전 실제 답변")).toBeNull();
-    expect(JSON.parse(localStorage.getItem(keys("live").runs))[0].subject).toBe(
-      "db-key",
-    );
+    nav("상담");
+    expect(screen.getByText("이전 실제 답변")).toBeInTheDocument();
     ask("다음 질문");
-    await screen.findByText("응답 수신 종료");
-    expect(JSON.parse(fetcher.mock.calls[1][1].body).subject).toBe("other-db");
+    await screen.findAllByText("답변 생성 완료");
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+      q: "다음 질문",
+    });
+    expect(JSON.parse(localStorage.getItem(keys("live").runs))[0].subject).toBe(
+      "산업안전보건기준에 관한 규칙",
+    );
   });
 });
 describe("evaluation interaction", () => {

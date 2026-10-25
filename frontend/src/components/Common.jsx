@@ -93,10 +93,6 @@ export function Shell({ children }) {
   const app = useApp();
   const location = useLocation();
   const [theme, setTheme] = useTheme();
-  const [subjectDraft, setDraft] = useState(app.subject);
-  useEffect(() => {
-    setDraft(app.subject);
-  }, [app.subject]);
   useEffect(() => {
     document.body.classList.toggle(
       "internal-page",
@@ -139,7 +135,7 @@ export function Shell({ children }) {
               ·{" "}
               {app.mode === "mock"
                 ? "실제 AI·검색 미연결"
-                : "답변·등록만 연결 가능 · 근거·평가 계약 미구현"}
+                : "상담·PDF 등록·평가 결과 조회 연결"}
             </span>
             <label className="mode-select">
               연결 모드{" "}
@@ -171,31 +167,11 @@ export function Shell({ children }) {
             )}
           </nav>
           {app.mode === "live" && (
-            <form
-              className="live-config filters"
-              onSubmit={(e) => {
-                e.preventDefault();
-                app.configureSubject(subjectDraft);
-              }}
-            >
-              <label className="field">
-                DB subject{" "}
-                <input
-                  aria-label="DB subject"
-                  value={subjectDraft}
-                  disabled={app.locked}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="실제 적재된 subject를 입력"
-                />
-              </label>
-              <button className="btn" disabled={app.locked} type="submit">
-                설정 적용·새 상담
-              </button>
-              <p className="muted">
-                표시 법령명과 DB 키는 다를 수 있습니다. 현재 API는 이전 대화를
-                받지 않으므로 질문마다 상황을 함께 적어 주세요.
-              </p>
-            </form>
+            <p className="note">
+              상담 대상: 산업안전보건기준에 관한 규칙 (현재 서버 계약 기준).
+              질문마다 필요한 상황을 함께 적어 주세요. PDF 등록 법령은 등록
+              화면에서 설정합니다.
+            </p>
           )}
         </section>
         {app.warning && (

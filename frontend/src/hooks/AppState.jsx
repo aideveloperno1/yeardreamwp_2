@@ -13,6 +13,7 @@ import {
 } from "../lib/storage.js";
 import { streamChat } from "../services/chatClient.js";
 import { uploadDocument } from "../services/documentClient.js";
+import { CHAT_LAW, CHAT_CONTRACT } from "../lib/liveContract.js";
 const Context = createContext(null);
 export const useApp = () => useContext(Context);
 const copy = (v) => structuredClone(v);
@@ -22,15 +23,9 @@ const connection = __API_CONNECTION__;
 export function AppProvider({ children }) {
   const [initial] = useState(() => {
     const live = restoreChat("live");
-    const subject =
-      import.meta.env.VITE_RAG_SUBJECT || live.value.subject || "";
-    if (
-      live.value.messages.length &&
-      (live.value.connection !== connection || live.value.subject !== subject)
-    ) {
-      live.value = { ...freshChat(), subject, connection };
+    if (live.value.messages.length && !live.value.contract) {
       live.warning ||=
-        "연결 설정이 달라 새 상담을 시작합니다. 이전 실행 기록은 보존합니다.";
+        "이전 대화를 복원했습니다. 과거 법령 설정은 실제 검색 법령을 보장하지 않으며 새 질문부터 고정 법령이 적용됩니다.";
     }
     return { mock: restoreChat("mock"), live };
   });
@@ -42,7 +37,12 @@ export function AppProvider({ children }) {
   const [mode, setMode] = useState("mock");
   const modeRef = useRef("mock");
   const [subject, setSubject] = useState(
-    import.meta.env.VITE_RAG_SUBJECT || initial.live.value.subject || "",
+    () =>
+      import.meta.env.VITE_RAG_SUBJECT ||
+      read("safety-chat.upload-subject.v1", "", (v) => typeof v === "string")
+        .value ||
+      (!initial.live.value.contract ? initial.live.value.subject : "") ||
+      "",
   );
   const [warning, setWarning] = useState(initial.mock.warning);
   const [evaluationBusy, setEvaluationBusy] = useState(false);
@@ -111,10 +111,15 @@ export function AppProvider({ children }) {
       mode: m,
       ...(m === "live"
         ? {
-            subject: chat.subject,
+            subject: result.subject || chat.subject,
+            contract: result.contract,
             connectionId: chat.connection || connection,
             clientRequestId: result.runId,
             receiveState: result.status,
+            retrievedSources: result.retrievedSources,
+            searchStatus: result.searchStatus,
+            generationStatus: result.generationStatus,
+            finishReason: result.finishReason,
           }
         : {}),
     };
@@ -132,6 +137,7 @@ export function AppProvider({ children }) {
       const result = {
         ...a.result,
         status: "interrupted",
+        generationStatus: "cancelled",
         text: a.text || "",
         note,
       };
@@ -150,17 +156,13 @@ export function AppProvider({ children }) {
     const q = text.trim();
     const m = modeRef.current;
     if (!q || active.current) return false;
-    if (m === "live" && !subject.trim()) {
-      setWarning("실제 적재된 DB subject를 먼저 설정하세요.");
-      return false;
-    }
     clearTimeout(undoTimer.current);
     setUndo(null);
     const old = copy(chatsRef.current[m]);
     const next = {
       ...old,
-      subject: m === "live" ? subject.trim() : M.LAW,
-      ...(m === "live" ? { connection } : {}),
+      subject: m === "live" ? CHAT_LAW : M.LAW,
+      ...(m === "live" ? { connection, contract: CHAT_CONTRACT } : {}),
       busy: true,
       stage: "receive",
       messages: [
@@ -219,10 +221,15 @@ export function AppProvider({ children }) {
     const result = {
       runId: id,
       status: "streaming",
+      searchStatus: "unknown",
+      generationStatus: "pending",
+      retrievedSources: null,
+      finishReason: null,
       at: new Date().toISOString(),
       text: "",
       mode: "live",
-      subject: subject.trim(),
+      subject: CHAT_LAW,
+      contract: CHAT_CONTRACT,
     };
     const a = {
       id,
@@ -237,7 +244,8 @@ export function AppProvider({ children }) {
       ...s,
       messages: [...s.messages, { role: "ai", result }],
     }));
-    const patch = (changes) =>
+    const patch = (changes) => {
+      a.result = { ...a.result, ...changes };
       update(m, (s) => ({
         ...s,
         messages: s.messages.map((msg) =>
@@ -246,32 +254,43 @@ export function AppProvider({ children }) {
             : msg,
         ),
       }));
+    };
     try {
-      await streamChat({
+      const response = await streamChat({
         q,
-        subject: subject.trim(),
         signal: a.controller.signal,
+        onSources: (sources) => {
+          if (active.current === a) patch(sources);
+        },
         onText: (text) => {
           if (active.current === a) {
             a.text = text;
-            patch({ text });
+            patch({ text, generationStatus: "streaming" });
           }
         },
       });
       if (active.current !== a) return true;
       const final = {
-        ...result,
+        ...a.result,
+        ...response,
         status: "received",
-        text: a.text,
-        note: "응답 수신 종료 · 서버의 생성 완료 상태는 미제공",
+        note:
+          response.generationStatus === "completed"
+            ? "서버가 답변 생성을 마쳤습니다. 법령 내용의 정확성을 보장하는 표시는 아닙니다."
+            : response.generationStatus === "no_results"
+              ? "검색 결과가 없어 AI 답변을 생성하지 않았습니다."
+              : response.generationStatus === "incomplete"
+                ? "답변 생성이 중단되었습니다. 받은 내용이 완전하지 않을 수 있습니다."
+                : "답변은 수신했지만 모델의 완료 사유를 확인하지 못했습니다.",
       };
       patch(final);
       record(m, next, final, q);
     } catch (e) {
       if (active.current !== a) return true;
       const final = {
-        ...result,
+        ...a.result,
         status: e.name === "AbortError" ? "interrupted" : "error",
+        generationStatus: e.name === "AbortError" ? "cancelled" : "error",
         text: a.text,
         note: e.message || "연결 오류",
         kind: "api",
@@ -294,8 +313,8 @@ export function AppProvider({ children }) {
     setUndo(previous.messages.length ? { mode: m, state: previous } : null);
     update(m, () => ({
       ...freshChat(),
-      subject: m === "live" ? subject : M.LAW,
-      ...(m === "live" ? { connection } : {}),
+      subject: m === "live" ? CHAT_LAW : M.LAW,
+      ...(m === "live" ? { connection, contract: CHAT_CONTRACT } : {}),
     }));
     undoTimer.current = setTimeout(() => setUndo(null), 6000);
   }
@@ -330,8 +349,8 @@ export function AppProvider({ children }) {
     const next = value.trim();
     if (next !== subject) {
       setSubject(next);
-      update("live", () => ({ ...freshChat(), subject: next, connection }));
-      setUndo(null);
+      const w = write("safety-chat.upload-subject.v1", next);
+      if (w) setWarning(w);
     }
   }
   async function register({ file, lawName, force }) {

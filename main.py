@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
@@ -6,7 +6,8 @@ from starlette.staticfiles import StaticFiles
 
 from service.file_service import file_upload
 from service.rag_service import add_data,search_obj
-from service.llm_service import get_answer
+from service.llm_service import generate_answer, generate_answer_events
+from service.chat_stream import wants_ndjson, sources_for, record, is_unavailable, structured_answer, plain_answer
 from service.opik_service import get_opik_results
 
 
@@ -41,7 +42,7 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/ask/chat")
-def ask_chat(info: ChatRequest):
+def ask_chat(info: ChatRequest, request: Request):
     query = info.q.strip()
 
     if not query:
@@ -53,12 +54,29 @@ def ask_chat(info: ChatRequest):
     # 법령명 고정
     subject = "산업안전보건기준에 관한 규칙"
 
-    search = search_obj(subject)
+    try:
+        search = search_obj(subject)
+        docs = list(search.invoke(query))
+    except Exception as exc:
+        unavailable = is_unavailable(exc)
+        raise HTTPException(
+            status_code=503 if unavailable else 500,
+            detail="법령 검색 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."
+            if unavailable else "법령 검색 중 오류가 발생했습니다. 다시 시도해 주세요."
+        ) from exc
 
-    return StreamingResponse(
-        get_answer(query, search),
-        media_type="text/plain; charset=utf-8"
-    )
+    ndjson = wants_ndjson(request.headers.get("accept"))
+    if ndjson:
+        try:
+            first = record("sources", search_status="found" if docs else "no_results", items=sources_for(docs))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="검색 참고자료를 준비하지 못했습니다.") from exc
+        body = structured_answer(query, docs, first, generate_answer_events)
+    else:
+        body = plain_answer(query, docs, generate_answer)
+    return StreamingResponse(body,
+        media_type="application/x-ndjson" if ndjson else "text/plain",
+        headers={"Vary": "Accept", "Cache-Control": "no-store"})
 
 @app.get("/admin/opik/results")
 def opik_results():

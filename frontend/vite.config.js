@@ -37,7 +37,7 @@ export default defineConfig(({ mode }) => {
       if (
         /^\/(api|docs)(\/|$)/.test(path) ||
         path === "/openapi.json" ||
-        (preview && /^\/(ask|upload)(\/|$)/.test(path))
+        (preview && /^\/(ask|upload|admin)(\/|$)/.test(path))
       ) {
         res.statusCode = preview ? 503 : 501;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -75,7 +75,11 @@ export default defineConfig(({ mode }) => {
       host: "127.0.0.1",
       port: 3000,
       strictPort: true,
-      proxy: { "/ask": { target }, "/upload": { target } },
+      proxy: {
+        "/ask": { target },
+        "/upload": { target },
+        "/admin": { target },
+      },
     },
     preview: { host: "127.0.0.1", port: 4173, strictPort: true },
     test: {

@@ -6,12 +6,13 @@ import M from "../lib/mockData.js";
 import { fmtTime, keys, read, session, validRuns } from "../lib/storage.js";
 import { STATUS, statusKey, statusTone, stepsFor } from "../lib/trace.js";
 import { NotFound, Page, Table, Tabs } from "../components/Common.jsx";
-const liveLabels = {
-  received: "응답 수신 종료",
-  streaming: "수신 중",
-  interrupted: "수신 중단",
-  error: "오류 종료",
-};
+import {
+  liveLabels,
+  liveLabel,
+  liveTone,
+  liveStateKey,
+} from "../lib/liveResult.js";
+import RetrievedSources from "../components/RetrievedSources.jsx";
 const origin = (r) =>
   r.mode === "live"
     ? "실제 API · 클라이언트 수신 기록"
@@ -26,9 +27,14 @@ const total = (r) =>
     : stepsFor(r).reduce((n, s) => n + s.ms, 0) + "ms (예시)";
 function Tag({ run }) {
   return (
-    <span className={"tag " + (statusTone[statusKey(run)] || "")}>
+    <span
+      className={
+        "tag " +
+        (run.mode === "live" ? liveTone(run) : statusTone[statusKey(run)] || "")
+      }
+    >
       {run.mode === "live"
-        ? liveLabels[run.status] || run.status
+        ? liveLabel(run)
         : STATUS[statusKey(run)] || "상태 미기록"}
     </span>
   );
@@ -64,7 +70,9 @@ export default function TracePage() {
     .sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const shown = runs.filter(
     (r) =>
-      (!filter.status || statusKey(r) === filter.status) &&
+      (!filter.status ||
+        (r.mode === "live" ? liveStateKey(r) : statusKey(r)) ===
+          filter.status) &&
       (!filter.topic ||
         (filter.topic === "none" ? !r.topic : r.topic === filter.topic)) &&
       (!filter.session || r.sessionId === filter.session) &&
@@ -257,10 +265,14 @@ function RunDetail({ run: r }) {
             이 ID는 브라우저가 만든 요청 ID입니다. 서버 실행 ID·Opik ID·실제
             검색 본문·단계 시간은 미제공입니다.
           </p>
-          <p>DB subject: {r.subject}</p>
           <p>
-            수신 상태: {liveLabels[r.receiveState] || r.receiveState} ·{" "}
-            {r.reason}
+            {r.contract === "fixed-law-v1"
+              ? "상담 법령 (당시 서버 계약 기준)"
+              : "당시 화면의 법령 설정값 · 실제 검색 법령 확인 안 됨"}
+            : {r.subject || "미기록"}
+          </p>
+          <p>
+            수신 상태: {liveLabel(r)} · {r.reason}
           </p>
         </>
       )}
@@ -268,6 +280,7 @@ function RunDetail({ run: r }) {
         {r.bodyVersion === 2 ? "저장한 답변 본문" : "이전 형식 답변 요약"}
       </h3>
       <p className="answer-body">{r.answer || "답변 미저장"}</p>
+      {r.mode === "live" && <RetrievedSources result={r} />}
       {r.bodyVersion !== 2 && (
         <p className="note">
           이전 형식 · 일부 내용 미저장. 현재 예시로 누락 내용을 복원하지

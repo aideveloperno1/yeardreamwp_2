@@ -65,7 +65,11 @@ try {
     const r = await fetch(base + path + "?v=1");
     const bytes = Buffer.from(await r.arrayBuffer());
     assert.equal(r.status, 200);
-    assert.equal(createHash("sha256").update(bytes).digest("hex"), hash);
+    // Git on Windows may check out text with CRLF; font bytes remain exact.
+    const hashBytes = path.endsWith(".txt")
+      ? Buffer.from(bytes.toString("utf8").replace(/\r\n/g, "\n"))
+      : bytes;
+    assert.equal(createHash("sha256").update(hashBytes).digest("hex"), hash);
     const head = await fetch(base + path, { method: "HEAD" });
     assert.equal(head.status, 200);
     assert.equal((await head.arrayBuffer()).byteLength, 0);
@@ -73,6 +77,7 @@ try {
   }
   for (const path of [
     "/ask/chat",
+    "/admin/opik/results",
     "/upload",
     "/docs",
     "/openapi.json",

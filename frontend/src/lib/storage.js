@@ -1,3 +1,4 @@
+import { validLiveFields } from "./liveResult.js";
 export const storage = (type) => ({
   getItem: (k) => window[type].getItem(k),
   setItem: (k, v) => window[type].setItem(k, v),
@@ -51,7 +52,13 @@ const optionalText = (v) => v == null || typeof v === "string";
 const validSources = (v) =>
   v == null || (Array.isArray(v) && v.every((k) => sourceKeys.includes(k)));
 function validResult(r) {
-  if (!r || typeof r.runId !== "string" || !validSources(r.sources))
+  if (
+    !r ||
+    typeof r.runId !== "string" ||
+    !validSources(r.sources) ||
+    !validLiveFields(r) ||
+    !optionalText(r.contract)
+  )
     return false;
   if (
     ![
@@ -134,6 +141,9 @@ export function restoreChat(mode) {
           result: {
             ...m.result,
             status: "interrupted",
+            ...(m.result.generationStatus
+              ? { generationStatus: "cancelled" }
+              : {}),
             note: "화면 종료로 응답 수신이 중단되었습니다.",
           },
         }
@@ -151,8 +161,9 @@ export function validRuns(v) {
         typeof r.sessionId === "string" &&
         typeof r.question === "string" &&
         validSources(r.sources) &&
-        ["answer", "reason", "subject", "need", "status"].every((k) =>
-          optionalText(r[k]),
+        validLiveFields(r) &&
+        ["answer", "reason", "subject", "need", "status", "contract"].every(
+          (k) => optionalText(r[k]),
         ),
     )
   );

@@ -1,6 +1,8 @@
 import { Link } from "react-router";
 import M from "../lib/mockData.js";
 import C from "../lib/evaluation.js";
+import { liveLabel, liveTone } from "../lib/liveResult.js";
+import RetrievedSources from "./RetrievedSources.jsx";
 export default function AnswerCard({
   result: r,
   disabled,
@@ -13,16 +15,7 @@ export default function AnswerCard({
     return (
       <>
         <div className="meta-row">
-          <span className={"tag " + (r.status === "error" ? "err" : "info")}>
-            {
-              {
-                streaming: "응답 수신 중",
-                received: "응답 수신 종료",
-                interrupted: "수신 중단",
-                error: "연결/응답 오류",
-              }[r.status]
-            }
-          </span>
+          <span className={"tag " + liveTone(r)}>{liveLabel(r)}</span>
           <span className="tag">실제 API</span>
         </div>
         <p className="answer-body">
@@ -31,10 +24,18 @@ export default function AnswerCard({
               ? "서버 응답을 기다리고 있습니다…"
               : "받은 답변 없음")}
         </p>
-        {r.note && <p className="note">{r.note}</p>}
         <p className="muted">
-          실제 근거 정보·검색 단계·생성 종료 사유는 현재 API에서 제공하지
-          않습니다.
+          {r.contract === "fixed-law-v1"
+            ? `상담 법령 (당시 서버 계약 기준): ${r.subject}`
+            : "이전 답변 · 실제 검색 법령 확인 안 됨"}
+        </p>
+        {r.note && <p className="note">{r.note}</p>}
+        <RetrievedSources result={r} />
+        <p className="muted">
+          {r.generationStatus === "no_results" ? "AI 답변 생성 미호출 · " : r.generationStatus
+            ? `모델 종료 사유: ${r.finishReason || "미확인"} · `
+            : ""}
+          검색 점수·단계 시간은 미제공입니다.
         </p>
         {r.status !== "streaming" && (
           <button className="btn" disabled={disabled} onClick={() => onEdit()}>

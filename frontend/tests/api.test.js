@@ -1,7 +1,8 @@
+import { wire, sourcesLine, line } from "./chatFixture.js";
 import { expect, it, vi } from "vitest";
 import { streamChat, errorMessage } from "../src/services/chatClient.js";
 import { uploadDocument } from "../src/services/documentClient.js";
-const response = (chunks, type = "text/plain") =>
+const response = (chunks, type = "application/x-ndjson") =>
   new Response(
     new ReadableStream({
       start(c) {
@@ -11,18 +12,17 @@ const response = (chunks, type = "text/plain") =>
     }),
     { headers: { "Content-Type": type } },
   );
-it("decodes Korean split inside UTF-8 characters and uses current q/subject contract", async () => {
-  const bytes = new TextEncoder().encode("안전난간 높이 90cm");
+it("decodes Korean split inside UTF-8 characters and uses current q-only contract", async () => {
+  const bytes = new TextEncoder().encode(wire("안전난간 높이 90cm"));
   const fetcher = vi.fn(async () =>
     response([bytes.slice(0, 1), bytes.slice(1, 5), bytes.slice(5)]),
   );
   const onText = vi.fn();
   expect(
     await streamChat({ q: "질문", subject: "db-key", onText, fetcher }),
-  ).toBe("안전난간 높이 90cm");
+  ).toMatchObject({ text: "안전난간 높이 90cm", generationStatus: "completed" });
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
     q: "질문",
-    subject: "db-key",
   });
   expect(onText).toHaveBeenLastCalledWith("안전난간 높이 90cm");
 });
@@ -42,7 +42,7 @@ it("rejects HTTP errors using server detail", async () => {
 it("rejects empty and unexpected HTML responses", async () => {
   await expect(
     streamChat({ onText() {}, fetcher: async () => response([]) }),
-  ).rejects.toThrow("빈 응답");
+  ).rejects.toThrow("종료 상태");
   await expect(
     streamChat({
       onText() {},
@@ -61,10 +61,10 @@ it("retains delivered partial text when stream later fails", async () => {
         new ReadableStream({
           start(c) {
             controller = c;
-            c.enqueue(new TextEncoder().encode("부분 답변"));
+            c.enqueue(new TextEncoder().encode(sourcesLine + line("delta", { text: "부분 답변" })));
           },
         }),
-        { headers: { "Content-Type": "text/plain" } },
+        { headers: { "Content-Type": "application/x-ndjson" } },
       ),
   });
   await vi.waitFor(() => expect(onText).toHaveBeenCalledWith("부분 답변"));
@@ -149,15 +149,15 @@ it("rejects a MIME type that only starts with text/plain", async () => {
     }),
   ).rejects.toThrow("응답 형식");
 });
-it("accepts plain text with charset parameters", async () => {
+it("accepts NDJSON with charset parameters", async () => {
   expect(
     await streamChat({
       onText() {},
       fetcher: async () =>
         response(
-          [new TextEncoder().encode("정상 응답")],
-          "text/plain; charset=utf-8",
+          [new TextEncoder().encode(wire("정상 응답"))],
+          "application/x-ndjson; charset=utf-8",
         ),
     }),
-  ).toBe("정상 응답");
+  ).toMatchObject({ text: "정상 응답" });
 });
